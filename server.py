@@ -35,21 +35,18 @@ class Agenda:
 
     def add_contacts(self, name, phone):
         if name in self.contacts:
-            debugLog.insert(tk.END, "Contato já existe.\n")
             raise ValueError("Contato já existe.")
         self.contacts[name] = phone
-        self._propagate_change('update', name, phone)
+        self._propagate_change('add', name, phone)
     
     def remove_contact(self, name):
         if name not in self.contacts:
-            debugLog.insert(tk.END, "Contato não encontrado.\n")
             raise ValueError("Contato não encontrado.")
         del self.contacts[name]
         self._propagate_change('remove', name)
 
     def update_contact(self, name, new_phone):
         if name not in self.contacts:
-            debugLog.insert(tk.END, "Contato não encontrado.\n")
             raise ValueError("Contato não encontrado.")
         self.contacts[name] = new_phone
         self._propagate_change('update', name, new_phone)
@@ -64,8 +61,10 @@ class Agenda:
                     replica.remove_contact(name)
                 elif action == 'update':
                     replica.update_contact(name, phone)
+            except ValueError:
+                debugLog.insert(tk.END, f"Sincronização concluída.\n")
             except Pyro4.errors.CommunicationError:
-                debugLog.insert(tk.END, f"Falha ao propagar mudança para {uri}.\n")
+                debugLog.insert(tk.END, f"Falha de sincronização para {uri}.\n")
 
 def launch_remote_server():
     ip = entryIpAgenda.get()
@@ -89,7 +88,7 @@ def start_remote_server(ip, port, name):
         uri = daemon.register(agenda)
         agenda.set_uri(uri)
         ns.register(f"agenda.{name}", uri)
-        debugLog.insert(tk.END, f"Agenda{name} criada.\n")
+        debugLog.insert(tk.END, f"Agenda {name} criada.\n")
         daemon.requestLoop()
     except Exception as e:
         debugLog.insert(tk.END, f"{e}\n")    
@@ -107,7 +106,6 @@ entryIpAgenda.grid(column=1, row=0, columnspan=2, padx=5, pady=5, sticky="nsew")
 # -------------------------------------------------------------------------------------
 
 # -------------------------------------------------------------------------------------
-
 # Label
 labelPortAgenda = tk.Label(agendaGui, text="Porta para acesso da agenda (9091 ~ 49151) :")
 labelPortAgenda.grid(column=0, row=1, padx=5, pady=5, sticky='w')
