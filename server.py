@@ -1,4 +1,5 @@
 import tkinter as tk
+from tkinter import ttk
 import threading
 import Pyro4
 import Pyro4.errors
@@ -9,12 +10,16 @@ import Pyro4.naming
 class Agenda:
     def __init__(self):
         self.contacts = {}  # Dicionario de contatos {nome: telefone}
-        self.replicas = []  # lista de replicas
+        self.replicas = []  # lista de replicas (uris)
         self.uri      = None
     
     def add_replica(self, replica_uri):
-        self.replicas.append(replica_uri)
-    
+        try:
+            self.replicas.append(replica_uri)
+            debugLog.insert(tk.END, f"Replica {replica_uri} adicionada.\n")
+        except Exception as e:
+            debugLog.insert(tk.END, f"{e}.\n")
+
     def synchronize(self):
         for uri in self.replicas:
             try:
@@ -22,7 +27,12 @@ class Agenda:
                 replica.add_replica(self.uri)
                 self.contacts.update(replica.get_contacts())
             except Pyro4.errors.CommunicationError:
-                debugLog.insert(tk.END, f"Replica {uri} offline, não pode ser sincronizada\n")
+                debugLog.insert(tk.END, f"Replica {uri} não sincronizada.\n")
+            except Exception as e:
+                debugLog.insert(tk.END, f"{e}.\n")
+        
+        for name, phone in self.contacts.items():
+            tree.insert("", tk.END, values=(name, phone))
     
     def get_contacts(self):
         return self.contacts
@@ -30,41 +40,63 @@ class Agenda:
     def get_replicas(self):
         return self.replicas
     
+    def get_uri(self):
+        return self.uri
+    
     def set_uri(self, uri):
         self.uri = uri
+        debugLog.insert(tk.END,f"URI: {self.uri}\n")
 
     def add_contacts(self, name, phone):
         if name in self.contacts:
             raise ValueError("Contato já existe.")
         self.contacts[name] = phone
-        self._propagate_change('add', name, phone)
+        tree.insert("", tk.END, values=(name, phone))
+        self.propagate_change('add', name, phone)
     
     def remove_contact(self, name):
         if name not in self.contacts:
             raise ValueError("Contato não encontrado.")
         del self.contacts[name]
-        self._propagate_change('remove', name)
+        for item in tree.get_children():
+            valores = tree.item(item, "values")
+            if valores[0] == name:
+                tree.delete(item)
+                break
+        self.propagate_change('remove', name)
 
     def update_contact(self, name, new_phone):
         if name not in self.contacts:
             raise ValueError("Contato não encontrado.")
+        
+        for contact_name, contact_phone in self.contacts.items():
+            if contact_name == name and contact_phone == new_phone:
+                raise ValueError("Contato atualizado.")
+
         self.contacts[name] = new_phone
-        self._propagate_change('update', name, new_phone)
+        for item in tree.get_children():
+            valores = tree.item(item, "values")
+            if valores[0] == name:
+                tree.item(item, values=(valores[0], new_phone))
+                break
+        self.propagate_change('update', name, new_phone)
     
-    def _propagate_change(self, action, name, phone=None):
+    def propagate_change(self, action, name, phone=None):
         for uri in self.replicas:
             try:
                 replica = Pyro4.Proxy(uri)
                 if action == 'add':
-                    replica.add_contact(name, phone)
+                    replica.add_contacts(name, phone)
                 elif action == 'remove':
                     replica.remove_contact(name)
                 elif action == 'update':
                     replica.update_contact(name, phone)
-            except ValueError:
-                debugLog.insert(tk.END, f"Sincronização concluída.\n")
             except Pyro4.errors.CommunicationError:
                 debugLog.insert(tk.END, f"Falha de sincronização para {uri}.\n")
+            except ValueError:  # Exceção = Fim da recursão, não faz nada nem aponta erros
+                pass
+            except Exception as e:
+                debugLog.insert(tk.END, f"{e}\n")
 
 def launch_remote_server():
     ip = entryIpAgenda.get()
@@ -84,11 +116,10 @@ def start_remote_server(ip, port, name):
         replicas = ns.list(prefix="agenda.")
         for _, agenda_uri in replicas.items():
             agenda.add_replica(agenda_uri)
-        agenda.synchronize()
         uri = daemon.register(agenda)
         agenda.set_uri(uri)
+        agenda.synchronize()
         ns.register(f"agenda.{name}", uri)
-        debugLog.insert(tk.END, f"Agenda {name} criada.\n")
         daemon.requestLoop()
     except Exception as e:
         debugLog.insert(tk.END, f"{e}\n")    
@@ -132,5 +163,13 @@ labelDebug = tk.Label(agendaGui, text="Debug log :")
 labelDebug.grid(column=0, row=3, padx=5, pady=5, sticky='nw')
 debugLog = tk.Text(agendaGui)
 debugLog.grid(column=1,row=3, padx=5, pady=5, sticky="nsew")
+
+# Agenda Tabela
+labelTree = tk.Label(agendaGui, text="Tabela de contatos :")
+labelTree.grid(column=0, row=4, padx=5, pady=5, sticky='nw')
+tree = ttk.Treeview(agendaGui, columns=("Nome", "Telefone"), show='headings')
+tree.heading("Nome", text="Nome")
+tree.heading("Telefone", text="Telefone")
+tree.grid(column=1,row=4, padx=5, pady=5, sticky="nsew")
 
 agendaGui.mainloop()
